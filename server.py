@@ -109,7 +109,7 @@ OCR_LANG_MAP = {
     "korean": "ko", "english": "en", "french": "latin",
     "spanish": "latin", "italian": "latin", "german": "latin",
     "dutch": "latin", "russian": "eslav",
-    "ch": "ch", "en": "en", "ko": "korean", "latin": "latin",
+    "ch": "ch", "en": "en", "ko": "ko", "latin": "latin",
     "ru": "eslav", "eslav": "eslav",
 }
 
