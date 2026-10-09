@@ -1,12 +1,6 @@
-try:
-    from PySide6.QtCore import Qt
-except ImportError:  # comic-backend corre sin PySide (solo server)
-    class _LayoutDirection:
-        LeftToRight = 0
-        RightToLeft = 1
-
-    class Qt:  # noqa
-        LayoutDirection = _LayoutDirection
+def get_layout_direction(language: str) -> str:
+    rtl_languages = {"Arabic", "Hebrew", "Persian"}
+    return "rtl" if language in rtl_languages else "ltr"
 
 language_codes = {
     "Korean": "ko",
@@ -39,9 +33,9 @@ language_codes = {
     "Mongolian": "mn",
 }
 
-def get_layout_direction(language: str) -> Qt.LayoutDirection:
+def get_layout_direction(language: str) -> str:
     rtl_languages = {"Arabic", "Hebrew", "Persian"}
-    return Qt.LayoutDirection.RightToLeft if language in rtl_languages else Qt.LayoutDirection.LeftToRight
+    return "rtl" if language in rtl_languages else "ltr"
 
 def get_language_code(lng: str):
     lng_cd = language_codes.get(lng, None)
