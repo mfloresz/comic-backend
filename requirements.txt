@@ -1,0 +1,13 @@
+# El build de ORT se elige en el notebook según CUDA del runtime:
+#   CUDA 13 -> onnxruntime-gpu (latest) | CUDA 12 -> onnxruntime-gpu==1.22.0
+# Build equivocado => provider CUDA no carga => todo cae a CPU => 524 en inpaint.
+onnxruntime-gpu
+fastapi
+uvicorn[standard]
+pydantic
+pillow
+numpy
+opencv-python-headless  # opcional (dilatado de máscara; hay fallback sin cv2)
+mahotas
+shapely
+pyclipper

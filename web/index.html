@@ -1,0 +1,224 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Comic Translate — Web + Colab (ONNX)</title>
+<style>
+  body{font-family:system-ui,sans-serif;margin:0;background:#111;color:#eee}
+  header{padding:12px 16px;background:#1c1c1c;border-bottom:1px solid #333}
+  main{display:grid;grid-template-columns:340px 1fr;gap:12px;padding:12px}
+  section{background:#1a1a1a;border:1px solid #333;border-radius:8px;padding:12px;margin-bottom:12px}
+  label{display:block;font-size:12px;color:#aaa;margin:8px 0 4px}
+  input,select,textarea{width:100%;background:#222;color:#eee;border:1px solid #444;border-radius:6px;padding:8px}
+  button{background:#2d6cdf;border:0;color:#fff;padding:9px 12px;border-radius:6px;cursor:pointer;margin:4px 4px 4px 0}
+  button.secondary{background:#333} button:disabled{opacity:.5}
+  #log{white-space:pre-wrap;font-size:12px;background:#000;padding:8px;border-radius:6px;height:160px;overflow:auto}
+  canvas{max-width:100%;border:1px solid #444;border-radius:6px;background:#000}
+  table{width:100%;font-size:12px;border-collapse:collapse}
+  td,th{border-bottom:1px solid #333;padding:4px;vertical-align:top}
+  .row{display:flex;gap:8px} .row>*{flex:1}
+</style>
+</head>
+<body>
+<header><b>Comic Translate Web</b> · pesado en Colab (ONNX/GPU) · traducción en tu navegador (fetch directo al LLM)</header>
+<main>
+<div>
+  <section>
+    <h3>1. Servidor Colab</h3>
+    <label>URL pública del túnel (ej. https://xxx.trycloudflare.com)</label>
+    <input id="serverUrl" placeholder="https://...">
+    <label>Token (CT_TOKEN, vacío si no pusiste)</label>
+    <input id="token" placeholder="">
+    <button onclick="checkHealth()">Probar conexión</button>
+  </section>
+  <section>
+    <h3>2. Traducción (local, fetch)</h3>
+    <div class="row">
+      <div><label>Proveedor</label>
+        <select id="prov">
+          <option value="openai">OpenAI</option>
+          <option value="custom">Custom OpenAI-compatible</option>
+          <option value="gemini">Gemini</option>
+        </select></div>
+      <div><label>Modelo</label><input id="model" value="gpt-4.1-mini"></div>
+    </div>
+    <label>API base</label><input id="apiBase" value="https://api.openai.com/v1">
+    <label>API key (se queda en tu navegador)</label><input id="apiKey" type="password">
+    <div class="row">
+      <div><label>Origen</label><select id="src"><option>Japanese</option><option>Korean</option><option>Chinese</option><option selected>English</option><option>French</option><option>Spanish</option><option>Italian</option><option>German</option><option>Dutch</option><option>Russian</option></select></div>
+      <div><label>Destino</label><select id="dst"><option selected>Spanish</option><option>English</option><option>French</option><option>Japanese</option></select></div>
+    </div>
+    <label>OCR engine (Colab, PPOCRv5-ONNX)</label>
+    <select id="ocrLang"><option value="ch">ch (JA/CN)</option><option value="en">en</option><option value="korean">korean</option><option value="latin" selected>latin (ES/FR/IT/DE)</option><option value="eslav">eslav (RU)</option></select>
+    <label>Límite inpaint, lado mayor px (0 = original, más lento; si da 524 baja a 768)</label>
+    <input id="hdLimit" type="number" value="1024">
+    <div class="row">
+      <div><label>Fuente máx px</label><input id="maxFont" type="number" value="120"></div>
+      <div><label>Fuente mín px</label><input id="minFont" type="number" value="10"></div>
+    </div>
+    <label>Tipo de fuente (del servidor)</label>
+    <select id="fontFamily"><option value="">DejaVu (defecto)</option></select>
+    <label>O sube tu .ttf/.otf (como la app anterior)</label>
+    <input id="fontFile" type="file" accept=".ttf,.otf,.ttc">
+    <div class="row">
+      <div><label>Color texto</label><input id="fontColor" type="color" value="#000000"></div>
+      <div><label>Color borde</label><input id="outlineColor" type="color" value="#ffffff"></div>
+      <div><label>Borde</label><input id="outline" type="checkbox" checked style="height:20px"></div>
+    </div>
+    <label>Contexto extra</label><textarea id="ctx" rows="2"></textarea>
+  </section>
+  <section>
+    <h3>3. Pipeline</h3>
+    <input id="file" type="file" accept="image/*">
+    <div>
+      <button onclick="runStep('detect')">Detect</button>
+      <button onclick="runStep('ocr')">OCR</button>
+      <button onclick="translateLocal()">Traducir (fetch local)</button>
+      <button onclick="runStep('inpaint')">Inpaint</button>
+      <button onclick="runStep('render')">Render</button>
+      <button onclick="runAuto()">AUTO</button>
+    </div>
+    <div id="log">listo.\n</div>
+  </section>
+</div>
+<div>
+  <section><h3>Imagen + bloques</h3><canvas id="cv"></canvas></section>
+  <section><h3>Bloques (edita texto/traducción)</h3><div id="tbl"></div>
+  <button class="secondary" onclick="downloadResult()">Descargar resultado</button></section>
+</div>
+</main>
+<script>
+let S = {img:null, imgName:'page.jpg', blocks:[], cleaned:null, final:null, fontData:''};
+const $ = id => document.getElementById(id);
+const log = m => { const l=$('log'); l.textContent += m+"\n"; l.scrollTop=l.scrollHeight; };
+const headers = () => { const t=$('token').value.trim(); return {'Content-Type':'application/json', ...(t?{'Authorization':'Bearer '+t}:{})}; };
+const base = () => {
+  let u = $('serverUrl').value.trim().replace(/\/+$/,'');
+  if (u && !/^https?:\/\//i.test(u)) u = 'https://' + u;
+  return u;
+};
+
+$('file').onchange = e => {
+  const f = e.target.files[0]; if(!f) return;
+  const r = new FileReader();
+  r.onload = () => { S.img = r.result; S.blocks=[]; S.cleaned=null; S.final=null; draw(); log('imagen cargada'); };
+  r.readAsDataURL(f); S.imgName = f.name;
+};
+
+let hitX = []; // zonas clicables de los botones X, en px de imagen
+function draw(){
+  const cv=$('cv'), ctx=cv.getContext('2d');
+  const src = S.final || S.cleaned || S.img; if(!src) return;
+  const im = new Image();
+  im.onload = () => { cv.width=im.width; cv.height=im.height; ctx.drawImage(im,0,0);
+    ctx.strokeStyle='#0f0'; ctx.lineWidth=Math.max(2,im.width/500);
+    const fs = Math.max(20, Math.round(im.width/40)); // número grande, escala con la imagen
+    ctx.font = `bold ${fs}px system-ui,sans-serif`;
+    hitX = [];
+    S.blocks.forEach((b,i)=>{ const [x1,y1,x2,y2]=b.xyxy;
+      ctx.strokeStyle='#0f0'; ctx.strokeRect(x1,y1,x2-x1,y2-y1);
+      // insignia con el número (arriba-izquierda)
+      const label = String(i), tw = ctx.measureText(label).width;
+      const bx=x1, by=Math.max(0,y1-fs-10);
+      ctx.fillStyle='#0f0'; ctx.fillRect(bx, by, tw+14, fs+8);
+      ctx.fillStyle='#000'; ctx.fillText(label, bx+7, by+fs+1);
+      // botón X (arriba-derecha)
+      const r = fs*0.75, cx = x2-r-6, cy = y1+r+6, k = r*0.45;
+      ctx.beginPath(); ctx.arc(cx, cy, r, 0, 7); ctx.fillStyle='#c00'; ctx.fill();
+      ctx.strokeStyle='#fff'; ctx.lineWidth=Math.max(2,r*0.25);
+      ctx.beginPath();
+      ctx.moveTo(cx-k,cy-k); ctx.lineTo(cx+k,cy+k);
+      ctx.moveTo(cx+k,cy-k); ctx.lineTo(cx-k,cy+k);
+      ctx.stroke();
+      hitX.push({x:cx, y:cy, r:r+6, i});
+    });
+  };
+  im.src = src;
+}
+$('cv').addEventListener('click', e => {
+  const cv=$('cv'), rect=cv.getBoundingClientRect();
+  const px=(e.clientX-rect.left)*cv.width/rect.width;
+  const py=(e.clientY-rect.top)*cv.height/rect.height;
+  const hit = hitX.find(h=>(px-h.x)**2+(py-h.y)**2 < h.r*h.r);
+  if(hit){ S.blocks.splice(hit.i,1); renderTable(); draw(); log('bloque '+hit.i+' eliminado'); }
+});
+$('cv').addEventListener('mousemove', e => {
+  const cv=$('cv'), rect=cv.getBoundingClientRect();
+  const px=(e.clientX-rect.left)*cv.width/rect.width;
+  const py=(e.clientY-rect.top)*cv.height/rect.height;
+  cv.style.cursor = hitX.some(h=>(px-h.x)**2+(py-h.y)**2 < h.r*h.r) ? 'pointer' : 'default';
+});
+
+function renderTable(){
+  $('tbl').innerHTML = S.blocks.map((b,i)=>
+    `<table><tr><th>#${i}</th><th><button class="secondary" onclick="S.blocks.splice(${i},1);renderTable();draw()">borrar</button></th></tr>
+     <tr><td>OCR</td><td><textarea rows="2" onchange="S.blocks[${i}].text=this.value">${(b.text||'').replace(/</g,'&lt;')}</textarea></td></tr>
+     <tr><td>TRAD</td><td><textarea rows="2" onchange="S.blocks[${i}].translation=this.value">${(b.translation||'').replace(/</g,'&lt;')}</textarea></td></tr></table>`).join('');
+}
+
+async function checkHealth(){
+  const r = await fetch(base()+'/health'); log('health: '+await r.text());
+  try{
+    const f = await (await fetch(base()+'/fonts')).json();
+    const sel = $('fontFamily'), cur = sel.value;
+    sel.innerHTML = '<option value="">DejaVu (defecto)</option>' +
+      f.fonts.map(n=>`<option>${n}</option>`).join('');
+    if ([...sel.options].some(o=>o.value===cur)) sel.value = cur;
+    log('fuentes: '+f.fonts.length);
+  }catch(e){ log('sin lista de fuentes'); }
+}
+$('fontFile').onchange = e => {
+  const f = e.target.files[0]; if(!f) return;
+  const r = new FileReader();
+  r.onload = () => { S.fontData = r.result; log('fuente personalizada: '+f.name); };
+  r.readAsDataURL(f);
+};
+async function post(path, body){
+  const r = await fetch(base()+path, {method:'POST', headers:headers(), body:JSON.stringify(body)});
+  if(!r.ok) throw new Error(path+' '+r.status+' '+(await r.text()).slice(0,300));
+  return r.json();
+}
+async function runStep(s){
+  try{
+    if(!S.img) return log('sube imagen primero');
+    if(s==='detect'){ const j=await post('/detect',{image:S.img,source_lang:$('src').value}); S.blocks=j.blocks; log('detect: '+S.blocks.length); }
+    if(s==='ocr'){ const j=await post('/ocr',{image:S.img,blocks:S.blocks,source_lang:$('src').value,ocr_lang:$('ocrLang').value}); S.blocks=j.blocks; log('ocr ok'); }
+    if(s==='inpaint'){ const j=await post('/inpaint',{image:S.img,blocks:S.blocks,hd_limit:parseInt($('hdLimit').value||'1024')}); S.cleaned='data:image/jpeg;base64,'+j.cleaned_image; log('inpaint ok'); }
+    if(s==='render'){ const src=S.cleaned||S.img; const j=await post('/render',{image:src,blocks:S.blocks,font_size:parseInt($('maxFont').value||'120'),min_font_size:parseInt($('minFont').value||'10'),font_family:$('fontFamily').value,font_data:S.fontData,color:$('fontColor').value,outline:$('outline').checked,outline_color:$('outlineColor').value}); S.final='data:image/jpeg;base64,'+j.final_image; log('render ok'); }
+    renderTable(); draw();
+  }catch(e){ log('ERROR '+e.message); }
+}
+async function runAuto(){ await runStep('detect'); await runStep('ocr'); await translateLocal(); await runStep('inpaint'); await runStep('render'); }
+
+function sysPrompt(src,dst){
+  return `You are an expert translator who translates ${src} to ${dst}. You translate OCR'd comic text. Return ONLY a JSON object mapping block_0..block_N to translated text. No explanations. If a block is already in ${dst} or gibberish, return it as-is.`;
+}
+async function translateLocal(){
+  try{
+    const dict={}; S.blocks.forEach((b,i)=>dict['block_'+i]=b.text||'');
+    const sys=sysPrompt($('src').value,$('dst').value);
+    const user=( $('ctx').value + `\nTranslate this:\n${JSON.stringify(dict,null,2)}`).trim();
+    const prov=$('prov').value, model=$('model').value, key=$('apiKey').value;
+    if(!key) return log('falta API key (local)');
+    let url, payload, h={'Content-Type':'application/json'};
+    if(prov==='gemini'){
+      url=`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${key}`;
+      payload={system_instruction:{parts:[{text:sys}]},contents:[{parts:[{text:user}]}]};
+    } else {
+      url=$('apiBase').value.replace(/\/$/,'')+'/chat/completions'; h.Authorization='Bearer '+key;
+      payload={model,messages:[{role:'system',content:sys},{role:'user',content:user}],temperature:1};
+    }
+    const r=await fetch(url,{method:'POST',headers:h,body:JSON.stringify(payload)});
+    if(!r.ok) throw new Error('LLM '+r.status+' '+(await r.text()).slice(0,400));
+    const j=await r.json();
+    const txt = prov==='gemini' ? j.candidates[0].content.parts.map(p=>p.text).join('') : j.choices[0].message.content;
+    const m=txt.match(/\{[\s\S]*\}/); const tr=JSON.parse(m[0]);
+    S.blocks.forEach((b,i)=>{ b.translation = tr['block_'+i] ?? b.translation; });
+    log('traducción local ok'); renderTable();
+  }catch(e){ log('ERROR trad '+e.message); }
+}
+function downloadResult(){ const a=document.createElement('a'); a.href=S.final||S.cleaned||S.img; a.download='traducida.jpg'; a.click(); }
+</script>
+</body>
+</html>
