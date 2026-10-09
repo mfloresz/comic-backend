@@ -10,8 +10,10 @@ Base: `https://<tu-tunel>.trycloudflare.com` (o `http://host:8000` en local/Dock
 
 * Imágenes que **envías**: string base64 **crudo o dataURL** (`data:image/...;base64,...`).
   Se aceptan PNG/JPEG/WEBP (PIL lo decodifica).
-* Imágenes que **recibes** (`cleaned_image`, `final_image`): base64 **crudo en JPEG**.
-  Para mostrar: prefija `data:image/jpeg;base64,`.
+* Imágenes que **recibes** (`cleaned_image`, `final_image`): base64 **crudo** en el
+  formato pedido (`img_fmt`, default `jpeg`). Para mostrar: prefija el dataURL
+  según `img_fmt` de la respuesta (`jpeg`→`data:image/jpeg;base64,`,
+  `webp`→`data:image/webp;base64,`, `png`→`data:image/png;base64,`).
 * JSON siempre UTF-8 (acentos/¿?/CJK sin escapar del lado cliente: `JSON.stringify` basta).
 * CORS: `*` en todo (orígenes, métodos, headers).
 * Auth: solo si el server arrancó con `CT_TOKEN` → header `Authorization: Bearer <token>`.
@@ -65,21 +67,23 @@ del servidor). La fuente por defecto (sin pedir ninguna) es la incluida
 
 ### POST /inpaint — borra el texto (devuelve imagen limpia)
 ```json
-{ "image": "<b64>", "blocks": [Block, ...], "hd_limit": 1024 }
-→ { "cleaned_image": "<b64-jpeg>", "mask_empty": false }
+{ "image": "<b64>", "blocks": [Block, ...], "hd_limit": 1024, "img_fmt": "webp" }
+→ { "cleaned_image": "<b64>", "mask_empty": false, "img_fmt": "webp" }
 ```
 `hd_limit`: lado mayor en px para inferir (default 1024, `0` = original).
 Si 524 → baja a 768. Se inpaintean **todos** los bloques recibidos
 (la máscara usa sus `xyxy` sin filtrar por texto).
+`img_fmt`: `jpeg` (default) | `webp` (~mitad de peso, recomendado tras el túnel) | `png`.
 
 ### POST /render — dibuja traducciones sobre la imagen limpia
 ```json
 { "image": "<b64-limpia>", "blocks": [Block, ...],
+  "img_fmt": "webp",
   "font_size": 120, "min_font_size": 10,
   "font_family": "", "font_data": "",
   "color": "#000000", "outline": true, "outline_color": "#FFFFFF",
   "upper_case": false }
-→ { "final_image": "<b64-jpeg>" }
+→ { "final_image": "<b64>", "img_fmt": "webp" }
 ```
 * `font_size` = **máximo**: busca binariamente el tamaño más grande que quepa
   en cada globo (no existe "tamaño fijo").
@@ -90,8 +94,8 @@ Si 524 → baja a 768. Se inpaintean **todos** los bloques recibidos
 ### POST /process — atajo detect+ocr+inpaint (sin traducir)
 ```json
 { "image": "<b64>", "blocks": [], "source_lang": "English",
-  "ocr_lang": "latin", "hd_limit": 1024 }
-→ { "blocks": [Block, ...], "cleaned_image": "<b64-jpeg>" }
+  "ocr_lang": "latin", "hd_limit": 1024, "img_fmt": "webp" }
+→ { "blocks": [Block, ...], "cleaned_image": "<b64>", "img_fmt": "webp" }
 ```
 Ignora `blocks` de entrada (detecta de cero).
 

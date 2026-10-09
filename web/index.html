@@ -51,6 +51,8 @@
     </div>
     <label>OCR engine (Colab, PPOCRv5-ONNX)</label>
     <select id="ocrLang"><option value="ch">ch (JA/CN)</option><option value="en">en</option><option value="korean">korean</option><option value="latin" selected>latin (ES/FR/IT/DE)</option><option value="eslav">eslav (RU)</option></select>
+    <label>Formato de imagen (WebP pesa ~mitad, agiliza el túnel)</label>
+    <select id="imgFmt"><option value="jpeg">JPEG</option><option value="webp" selected>WebP</option><option value="png">PNG</option></select>
     <label>Límite inpaint, lado mayor px (0 = original, más lento; si da 524 baja a 768)</label>
     <input id="hdLimit" type="number" value="1024">
     <div class="row">
@@ -179,13 +181,15 @@ async function post(path, body){
   if(!r.ok) throw new Error(path+' '+r.status+' '+(await r.text()).slice(0,300));
   return r.json();
 }
+const mimeFor = f => f==='png' ? 'data:image/png;base64,' : (f==='webp' ? 'data:image/webp;base64,' : 'data:image/jpeg;base64,');
 async function runStep(s){
   try{
     if(!S.img) return log('sube imagen primero');
+    const fmt = $('imgFmt').value;
     if(s==='detect'){ const j=await post('/detect',{image:S.img,source_lang:$('src').value}); S.blocks=j.blocks; log('detect: '+S.blocks.length); }
     if(s==='ocr'){ const j=await post('/ocr',{image:S.img,blocks:S.blocks,source_lang:$('src').value,ocr_lang:$('ocrLang').value}); S.blocks=j.blocks; log('ocr ok'); }
-    if(s==='inpaint'){ const j=await post('/inpaint',{image:S.img,blocks:S.blocks,hd_limit:parseInt($('hdLimit').value||'1024')}); S.cleaned='data:image/jpeg;base64,'+j.cleaned_image; log('inpaint ok'); }
-    if(s==='render'){ const src=S.cleaned||S.img; const j=await post('/render',{image:src,blocks:S.blocks,font_size:parseInt($('maxFont').value||'120'),min_font_size:parseInt($('minFont').value||'10'),font_family:$('fontFamily').value,font_data:S.fontData,color:$('fontColor').value,outline:$('outline').checked,outline_color:$('outlineColor').value}); S.final='data:image/jpeg;base64,'+j.final_image; log('render ok'); }
+    if(s==='inpaint'){ const j=await post('/inpaint',{image:S.img,blocks:S.blocks,hd_limit:parseInt($('hdLimit').value||'1024'),img_fmt:fmt}); S.imgFmt=j.img_fmt||'jpeg'; S.cleaned=mimeFor(S.imgFmt)+j.cleaned_image; log('inpaint ok'); }
+    if(s==='render'){ const src=S.cleaned||S.img; const j=await post('/render',{image:src,blocks:S.blocks,img_fmt:fmt,font_size:parseInt($('maxFont').value||'120'),min_font_size:parseInt($('minFont').value||'10'),font_family:$('fontFamily').value,font_data:S.fontData,color:$('fontColor').value,outline:$('outline').checked,outline_color:$('outlineColor').value}); S.imgFmt=j.img_fmt||'jpeg'; S.final=mimeFor(S.imgFmt)+j.final_image; log('render ok'); }
     renderTable(); draw();
   }catch(e){ log('ERROR '+e.message); }
 }
@@ -218,7 +222,7 @@ async function translateLocal(){
     log('traducción local ok'); renderTable();
   }catch(e){ log('ERROR trad '+e.message); }
 }
-function downloadResult(){ const a=document.createElement('a'); a.href=S.final||S.cleaned||S.img; a.download='traducida.jpg'; a.click(); }
+function downloadResult(){ const a=document.createElement('a'); a.href=S.final||S.cleaned||S.img; const ext=(S.imgFmt==='webp')?'webp':(S.imgFmt==='png'?'png':'jpg'); a.download='traducida.'+ext; a.click(); }
 </script>
 </body>
 </html>

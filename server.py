@@ -63,11 +63,31 @@ def b64_to_rgb(b64: str) -> np.ndarray:
     return np.array(img)
 
 
-def rgb_to_b64(arr: np.ndarray, fmt: str = "JPEG", quality: int = 92) -> str:
+IMG_FMTS = {"jpeg": ("JPEG", 92), "jpg": ("JPEG", 92),
+            "webp": ("WEBP", 90), "png": ("PNG", None)}
+
+
+def norm_fmt(fmt: str = "jpeg") -> str:
+    f = (fmt or "jpeg").lower().lstrip(".")
+    return f if f in IMG_FMTS else "jpeg"
+
+
+def rgb_to_b64(arr: np.ndarray, fmt: str = "jpeg") -> str:
+    f = norm_fmt(fmt)
+    pil_fmt, q = IMG_FMTS[f]
     img = Image.fromarray(arr.astype(np.uint8))
     buf = io.BytesIO()
-    img.save(buf, format=fmt, quality=quality)
+    if q is None:
+        img.save(buf, format=pil_fmt)
+    else:
+        img.save(buf, format=pil_fmt, quality=q)
     return base64.b64encode(buf.getvalue()).decode()
+
+
+def data_url(b64: str, fmt: str) -> str:
+    f = norm_fmt(fmt)
+    mime = "image/png" if f == "png" else f"image/{f}"
+    return f"data:{mime};base64,{b64}"
 
 
 def providers():
@@ -231,12 +251,14 @@ class OcrIn(BaseModel):
     source_lang: str = "English"
     ocr_lang: str = "en"
     hd_limit: int = 1024
+    img_fmt: str = "jpeg"  # jpeg | webp | png
 
 
 class BlocksIn(BaseModel):
     image: str
     blocks: list[dict]
     hd_limit: int = 1024  # lado mayor para inferencia; 0 = original (lento)
+    img_fmt: str = "jpeg"  # jpeg | webp | png
 
 
 class RenderIn(BaseModel):
@@ -244,7 +266,7 @@ class RenderIn(BaseModel):
     blocks: list[dict]
     font_size: int = 120       # tamaño máximo (crece hasta que llene el globo)
     min_font_size: int = 10
-    font_family: str = ""      # nombre de /fonts; "" = DejaVu
+    font_family: str = ""      # nombre de /fonts; "" = ComicNeue del repo
     font_data: str = ""        # .ttf/.otf en base64 (subido desde el navegador)
     color: str = "#000000"
     outline: bool = True
@@ -305,14 +327,15 @@ def inpaint(body: BlocksIn, authorization: Optional[str] = Header(None)):
         if not b.text and not b.translation:
             b.text = "x"
     mask = simple_mask(img, blks)
+    fmt = norm_fmt(body.img_fmt)
     if int(mask.sum()) == 0:
-        return {"cleaned_image": rgb_to_b64(img), "mask_empty": True}
+        return {"cleaned_image": rgb_to_b64(img, fmt), "mask_empty": True, "img_fmt": fmt}
     inp = get_inpainter()
     print(f"[inpaint] modelo listo en { _t.time()-t0:.1f}s, infiriendo...", flush=True)
     out = inp(img, mask, get_hd_config(body.hd_limit))
     out = imk.convert_scale_abs(out)
     print(f"[inpaint] total { _t.time()-t0:.1f}s", flush=True)
-    return {"cleaned_image": rgb_to_b64(out), "mask_empty": False}
+    return {"cleaned_image": rgb_to_b64(out, fmt), "mask_empty": False, "img_fmt": fmt}
 
 
 _FONT_FILES: dict[str, str] = {}
@@ -507,7 +530,8 @@ def render(body: RenderIn, authorization: Optional[str] = Header(None)):
                                 align="center", stroke_width=2, stroke_fill=body.outline_color)
         else:
             draw.multiline_text((tx, ty), wrapped, font=font, fill=body.color, align="center")
-    return {"final_image": rgb_to_b64(np.array(pil))}
+    fmt = norm_fmt(body.img_fmt)
+    return {"final_image": rgb_to_b64(np.array(pil), fmt), "img_fmt": fmt}
 
 
 @app.post("/process")
@@ -536,5 +560,6 @@ def process(body: OcrIn, authorization: Optional[str] = Header(None)):
             out = img
     else:
         out = img
+    fmt = norm_fmt(body.img_fmt)
     return {"blocks": [blk_to_dict(b, i) for i, b in enumerate(blks)],
-            "cleaned_image": rgb_to_b64(out)}
+            "cleaned_image": rgb_to_b64(out, fmt), "img_fmt": fmt}
