@@ -14,7 +14,7 @@ Extraído de `comic-translate`: solo lo que el servidor usa (~1MB de código).
 | Detección | RT-DETR-v2 ONNX (+ font-detector ONNX) |
 | OCR | PPOCRv5 ONNX (ch/en/korean/latin/eslav) |
 | Inpaint | LaMa ONNX (con `hd_limit` para no pasar el tope ~100s del túnel) |
-| Render | PIL + NotoSans (auto-descarga) / DejaVu / .ttf subida |
+| Render | PIL + ComicNeue-Bold (incluida en `fonts/`, por defecto) / Noto / DejaVu / .ttf subida |
 
 ## Colab
 

@@ -9,7 +9,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 WORKDIR /srv
 COPY requirements.txt .
 RUN pip3 install --no-cache-dir -r requirements.txt
-COPY server.py modules imkit ./
+COPY server.py modules imkit fonts ./
 
 EXPOSE 8000
 # CT_TOKEN opcional: Authorization: Bearer <token>

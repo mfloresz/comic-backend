@@ -58,7 +58,7 @@
       <div><label>Fuente mín px</label><input id="minFont" type="number" value="10"></div>
     </div>
     <label>Tipo de fuente (del servidor)</label>
-    <select id="fontFamily"><option value="">DejaVu (defecto)</option></select>
+    <select id="fontFamily"><option value="">ComicNeue (defecto)</option></select>
     <label>O sube tu .ttf/.otf (como la app anterior)</label>
     <input id="fontFile" type="file" accept=".ttf,.otf,.ttc">
     <div class="row">
@@ -162,7 +162,7 @@ async function checkHealth(){
   try{
     const f = await (await fetch(base()+'/fonts')).json();
     const sel = $('fontFamily'), cur = sel.value;
-    sel.innerHTML = '<option value="">DejaVu (defecto)</option>' +
+    sel.innerHTML = '<option value="">ComicNeue (defecto)</option>' +
       f.fonts.map(n=>`<option>${n}</option>`).join('');
     if ([...sel.options].some(o=>o.value===cur)) sel.value = cur;
     log('fuentes: '+f.fonts.length);

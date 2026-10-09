@@ -318,6 +318,7 @@ def inpaint(body: BlocksIn, authorization: Optional[str] = Header(None)):
 _FONT_FILES: dict[str, str] = {}
 _FONT_CACHE: dict = {}
 _NOTO_URL = "https://github.com/google/fonts/raw/main/ofl/notosans/NotoSans-Bold.ttf"
+REPO_FONT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "fonts", "ComicNeue-Bold.ttf")
 
 
 def _ensure_noto() -> str:
@@ -391,6 +392,13 @@ def _font(size: int, family: str = "", font_data: str = ""):
             try:
                 f = ImageFont.truetype(p, size)
                 label = os.path.basename(p)
+            except Exception:
+                f = None
+    if f is None:
+        if os.path.exists(REPO_FONT):
+            try:
+                f = ImageFont.truetype(REPO_FONT, size)
+                label = "ComicNeue-Bold(repo)"
             except Exception:
                 f = None
     if f is None:
